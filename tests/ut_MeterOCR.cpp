@@ -268,5 +268,47 @@ TEST(MeterOCR, debouncing)
 		ASSERT_EQ(i, debounce(i+1, (double)(i+1)-0.51));
 	}
 
-}
+};
 
+TEST(MeterOCR, basic2_needle_v4l) // TODO remove this test as it depends on a test machine with v4l2 dev
+{
+	std::list<Option> options;
+	options.push_back(Option("v4l2_dev", (char*)"/dev/video0"));
+	options.push_back(Option("rotate", -2.0)); // rotate by -2deg (counterclockwise)// 661, 539, 585/680
+	struct json_object *jso = json_tokener_parse("[{\"type\": \"needle\", \"boundingboxes\":[\
+		{\"identifier\": \"water cons\", \"scaler\":-1,\"digit\":false, \"circle\": {\"cx\": 689, \"cy\": 449, \"cr\": 24}},\
+		{\"identifier\": \"water cons\", \"scaler\":-2,\"digit\":false, \"circle\": {\"cx\": 661, \"cy\": 539, \"cr\": 24}},\
+		{\"identifier\": \"water cons\", \"scaler\":-3,\"digit\":false, \"circle\": {\"cx\": 574, \"cy\": 576, \"cr\": 24}, \"confidence_id\": \"conf_circle\"},\
+		{\"identifier\": \"water cons\", \"scaler\":-4,\"digit\":true, \"circle\": {\"cx\": 488, \"cy\": 542, \"cr\": 24}}\
+		 ]}]"); // should detect 0,3767
+	options.push_back(Option("recognizer", jso));
+	json_object_put(jso);
+	jso = json_tokener_parse("\
+		{\"range\": 20, \"x\": 465, \"y\":395}\
+	  ");
+	 options.push_back(Option("autofix", jso));
+	 json_object_put(jso);
+
+	MeterOCR m(options);
+
+	if (SUCCESS== m.open()) { // we don't use assert_eq here as not all build machines have a camera!
+
+//	ASSERT_EQ(SUCCESS, m.open());
+
+	std::vector<Reading> rds;
+	rds.resize(2);
+	EXPECT_EQ(0, m.read(rds, 2));
+	EXPECT_EQ(0, m.read(rds, 2));
+	EXPECT_EQ(0, m.read(rds, 2));
+	EXPECT_EQ(0, m.read(rds, 2));
+
+		  /*
+	double value = rds[0].value();
+	EXPECT_TRUE(abs(0.3767-value)<0.00001);
+
+	value = rds[1].value();
+	EXPECT_GT(value, 80.0); // expect conf. >80
+		  */
+	ASSERT_EQ(0, m.close());
+	}
+}

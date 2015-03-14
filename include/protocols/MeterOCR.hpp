@@ -143,7 +143,20 @@ protected:
 	static const unsigned int RED_COLOR_LIMIT = 0x80000000;
 };
 
+	bool checkCapV4L2Dev();
+	bool initV4L2Dev(unsigned int w, unsigned int h);
+	Pix *readV4l2Frame();
+
+	struct buffer {
+		void *start;
+		size_t length;
+	};
+
 	std::string _file;
+	bool _use_v4l2;
+	int _v4l2_fd;
+	struct buffer *_v4l2_buffers;
+	unsigned int _v4l2_nbuffers;
     int _notify_fd;
     bool _forced_file_changed;
 	int _impulses;

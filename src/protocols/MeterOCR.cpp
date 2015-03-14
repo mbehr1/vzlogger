@@ -44,6 +44,11 @@ Quick patent check: (no warranties, just my personal opinion, only checked as I 
 	*/
 
 #include <sys/inotify.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 #include <unistd.h>
 // #include <stdio.h>
 // #include <stdlib.h>
@@ -56,6 +61,8 @@ Quick patent check: (no warranties, just my personal opinion, only checked as I 
 #include "Options.hpp"
 #include <VZException.hpp>
 #include <json-c/json.h>
+
+#include <linux/videodev2.h>
 
 /* install libleptonica: 
 
@@ -490,16 +497,26 @@ MeterOCR::RecognizerNeedle::~RecognizerNeedle()
 }
 
 MeterOCR::MeterOCR(std::list<Option> options)
-        : Protocol("ocr"), _notify_fd(-1), _forced_file_changed(true), _impulses(0), _rotate(0.0),
-        _autofix_range(0), _autofix_x(-1), _autofix_y(-1), _last_reads(0), _generate_debug_image(false)
+		: Protocol("ocr"), _use_v4l2(false), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
+		_notify_fd(-1), _forced_file_changed(true), _impulses(0), _rotate(0.0),
+		_autofix_range(0), _autofix_x(-1), _autofix_y(-1), _last_reads(0), _generate_debug_image(false)
 {
 	OptionList optlist;
 
 	try {
-		_file = optlist.lookup_string(options, "file");
+		_file = optlist.lookup_string(options, "v4l2_dev");
+		_use_v4l2 = true;
 	} catch (vz::VZException &e) {
-		print(log_error, "Missing image file name", name().c_str());
-		throw;
+		// ignore
+	}
+
+	if (!_use_v4l2) {
+		try {
+			_file = optlist.lookup_string(options, "file");
+		} catch (vz::VZException &e) {
+			print(log_error, "Missing image file name", name().c_str());
+			throw;
+		}
 	}
 	
 	try {
@@ -602,6 +619,7 @@ void MeterOCR::Recognizer::saveDebugImage(PIXA *debugPixa, PIX *image, const cha
 
 MeterOCR::~MeterOCR() {	
 	if (_last_reads) delete _last_reads;
+	if (_v4l2_buffers) free( _v4l2_buffers );
 }
 
 int MeterOCR::open() {
@@ -609,24 +627,238 @@ int MeterOCR::open() {
     if (_notify_fd!=-1) {
         (void)::close(_notify_fd);
         _notify_fd = -1;
-   }
-    _notify_fd = inotify_init1(IN_NONBLOCK);
-    if (_notify_fd != -1) {
-        inotify_add_watch(_notify_fd, _file.c_str(), IN_CLOSE_WRITE); // use IN_ONESHOT and retrigger after read?
-    }
+	}
+	if (!_use_v4l2) {
+		_notify_fd = inotify_init1(IN_NONBLOCK);
+		if (_notify_fd != -1) {
+			inotify_add_watch(_notify_fd, _file.c_str(), IN_CLOSE_WRITE); // use IN_ONESHOT and retrigger after read?
+		}
 
-	// check  (open/close) file on each reading, so we check here just once
-	FILE *_fd = fopen(_file.c_str(), "r");
+		// check  (open/close) file on each reading, so we check here just once
+		FILE *_fd = fopen(_file.c_str(), "r");
 
-	if (_fd == NULL) {
-		print(log_error, "fopen(%s): %s", name().c_str(), _file.c_str(), strerror(errno));
-		return ERR;
+		if (_fd == NULL) {
+			print(log_error, "fopen(%s): %s", name().c_str(), _file.c_str(), strerror(errno));
+			return ERR;
+		}
+
+		(void) fclose(_fd);
+		_fd = NULL;
+	} else { // v4l2 device:
+		struct stat st;
+		if (-1 == stat(_file.c_str(), &st)) {
+			print(log_error, "cannot identify '%s'", name().c_str(), _file.c_str());
+			return ERR;
+		}
+		if (!S_ISCHR(st.st_mode)) {
+			print(log_error, "'%s' is no device", name().c_str(), _file.c_str());
+			return ERR;
+		}
+
+		_v4l2_fd = ::open( _file.c_str(), O_RDWR | O_NONBLOCK, 0 );
+
+		if (-1 == _v4l2_fd) {
+			print(log_error, "cannot open '%s': %d , %s", name().c_str(), _file.c_str(),
+				  errno, strerror(errno));
+			return ERR;
+		}
+
+		if (!checkCapV4L2Dev()) {
+			print(log_error, "capabilities '%s' not sufficient", name().c_str(), _file.c_str());
+			::close(_v4l2_fd);
+			_v4l2_fd = -1;
+			return ERR;
+		}
+
+		if (!initV4L2Dev(640, 480)) {
+			print(log_error, "couldn't init' '%s'", name().c_str(), _file.c_str());
+			::close(_v4l2_fd);
+			_v4l2_fd = -1;
+			return ERR;
+		}
 	}
 
-	(void) fclose(_fd);
-	_fd = NULL;
-
 	return SUCCESS;
+}
+
+static int xioctl(int fh, int request, void *arg)
+{
+	int r;
+	do {
+		r = ioctl(fh, request, arg);
+	} while (-1 == r && EINTR == errno);
+	return r;
+}
+
+bool MeterOCR::checkCapV4L2Dev()
+{
+	if (_v4l2_fd <= -1) return false;
+	struct v4l2_capability cap;
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_QUERYCAP, &cap)) {
+		if (EINVAL == errno) {
+			print(log_error, "'%s' is no V4L2 device", name().c_str(), _file.c_str());
+		} else {
+			print(log_error, "error %d, %s at VIDIOC_QUERYCAP", name().c_str(), errno, strerror(errno));
+		}
+		return false;
+	}
+	print(log_info, "'%s' has capabilities: 0x%x", name().c_str(), _file.c_str(), cap.capabilities);
+	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+		print(log_error, "'%s' does not support V4L2_CAP_VIDEO_CAPTURE", name().c_str(), _file.c_str());
+		return false;
+	}
+	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
+		print(log_error, "'%s' does not support V4L2_CAP_STREAMING", name().c_str(), _file.c_str());
+		return false;
+	}
+
+	// todo check brightness,...
+
+	return true;
+}
+
+bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
+{
+	// todo reset VIDIOC_CROPCAP???
+	struct v4l2_format fmt;
+
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.fmt.pix.width = w;
+	fmt.fmt.pix.height = h;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
+		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+
+	struct v4l2_requestbuffers req;
+
+	memset(&req, 0, sizeof(req));
+
+	req.count = 2;
+	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	req.memory = V4L2_MEMORY_MMAP;
+
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_REQBUFS, &req)) {
+		if (EINVAL == errno) {
+			print(log_error, "'%s'' does not support memory mapping", name().c_str(), _file.c_str());
+			return false;
+		} else {
+			print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
+			return false;
+		}
+	}
+
+	if (req.count < 2) {
+		print(log_error, "Insufficient buffer memory on '%s'",
+			  name().c_str(), _file.c_str());
+		return false;
+	}
+	if (_v4l2_buffers) {
+			print(log_error, "v4l2_buffers already init!", name().c_str());
+			return false;
+	}
+	_v4l2_buffers = (MeterOCR::buffer*)calloc(req.count, sizeof(*_v4l2_buffers));
+
+	 if (!_v4l2_buffers) {
+			 print(log_error, "Out of memory", name().c_str());
+			 return false;
+	 }
+
+	 for (_v4l2_nbuffers = 0; _v4l2_nbuffers < req.count; ++_v4l2_nbuffers) {
+		 struct v4l2_buffer buf;
+
+		 memset(&buf, 0, sizeof(buf));
+
+		 buf.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		 buf.memory      = V4L2_MEMORY_MMAP;
+		 buf.index       = _v4l2_nbuffers;
+
+		 if (-1 == xioctl(_v4l2_fd, VIDIOC_QUERYBUF, &buf)) {
+			 return false; // release memory will be done in Destr.
+		 }
+
+		 _v4l2_buffers[_v4l2_nbuffers].length = buf.length;
+		 _v4l2_buffers[_v4l2_nbuffers].start =
+				 mmap(NULL /* start anywhere */,
+					  buf.length,
+					  PROT_READ | PROT_WRITE /* required */,
+					  MAP_SHARED /* recommended */,
+					  _v4l2_fd, buf.m.offset);
+
+		 if (MAP_FAILED == _v4l2_buffers[_v4l2_nbuffers].start) {
+			 print(log_error, "mmap failed", name().c_str());
+			 return false;
+		 }
+	 }
+
+	 // start capturing:
+	 for (unsigned int i = 0; i < _v4l2_nbuffers; ++i) {
+		 struct v4l2_buffer buf;
+
+		 memset(&buf, 0, sizeof(buf));
+		 buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		 buf.memory = V4L2_MEMORY_MMAP;
+		 buf.index = i;
+
+		 if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
+			 print(log_error, "VIDIOC_QBUF failed", name().c_str());
+			 return false;
+		 }
+	 }
+	 enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	 if (-1 == xioctl(_v4l2_fd, VIDIOC_STREAMON, &type)) {
+		 print(log_error, "VIDIOC_QBUF failed", name().c_str());
+		 return false;
+	 }
+
+	return true;
+}
+
+Pix *MeterOCR::readV4l2Frame()
+{
+	Pix *toret = 0;
+	struct v4l2_buffer buf;
+	memset(&buf, 0, sizeof(buf));
+	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	buf.memory = V4L2_MEMORY_MMAP;
+
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_DQBUF, &buf)) {
+		switch (errno) {
+		case EAGAIN:
+			print(log_error, "VIDIOC_DQBUF failed with EAGAIN", name().c_str());
+			return 0;
+
+		case EIO:
+			/* Could ignore EIO, see spec. */
+
+			/* fall through */
+
+		default:
+			print(log_error, "VIDIOC_DQBUF failed", name().c_str());
+			return 0;
+		}
+	}
+
+	if(buf.index >= _v4l2_nbuffers) {
+		print(log_error, "buf.index >= nbuffers!", name().c_str());
+		return 0;
+	}
+
+	// now we have the image data in buffers[buf.index].start with len buf.bytesused
+	print(log_error, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
+
+	// copy into a Pix image (!would be better if we don't need to copy!)
+
+	// return buffer:
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
+		print(log_error, "VIDIOC_QBUF failed", name().c_str());
+		return 0;
+	}
+
+	return toret;
 }
 
 bool MeterOCR::isNotifiedFileChanged()
@@ -660,6 +892,23 @@ int MeterOCR::close() {
         (void)::close(_notify_fd);
         _notify_fd = -1;
     }
+
+	if (_v4l2_fd) {
+		// stop capturing
+		enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		if (-1 == xioctl(_v4l2_fd, VIDIOC_STREAMOFF, &type))
+			print(log_error, "Error VIDIOC_STREAMOFF", name().c_str());
+
+		// unmap memory
+		for (unsigned int i = 0; i < _v4l2_nbuffers; ++i) {
+			if (-1 == munmap(_v4l2_buffers[i].start, _v4l2_buffers[i].length))
+				print(log_error, "Error munmap", name().c_str());
+		}
+
+		(void)::close(_v4l2_fd);
+		_v4l2_fd = -1;
+	}
+
 	return 0;
 }
 
@@ -677,18 +926,48 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 	print(log_debug, "MeterOCR::read: %d, %d", name().c_str(), rds.size(), max_reads);
 
 	if (max_reads<1) return 0;
+
+	Pix *image = 0;
 	
-    if (!isNotifiedFileChanged() && !_forced_file_changed) return 0;
-    _forced_file_changed = false;
+	if (!_use_v4l2) {
+		if (!isNotifiedFileChanged() && !_forced_file_changed) return 0;
+		_forced_file_changed = false;
+
+		// open image:
+		image = pixRead(_file.c_str());
+		if (!image){
+			print(log_debug, "pixRead returned NULL!", name().c_str());
+			return 0;
+		}
+	} else { // v4l2
+		// capture an image:
+		fd_set fds;
+		struct timeval tv;
+
+		FD_ZERO(&fds);
+		FD_SET(_v4l2_fd, &fds);
+		tv.tv_sec = 2;
+		tv.tv_usec = 0;
+		int r;
+		do {
+			r = select(_v4l2_fd +1, &fds, NULL, NULL, &tv);
+		} while( -1 == r && EINTR == errno);
+		if (0 == r) {
+			// timeout
+			print(log_warning, "timeout!", name().c_str());
+			return 0;
+		}
+		if (-1 == r) {
+			print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
+			return 0;
+		}
+		// read frame!
+		print(log_error,"frame ready!", name().c_str());
+		image = readV4l2Frame();
+		if (!image) return 0;
+	}
 
 	PIXA *debugPixa= _generate_debug_image ? pixaCreate(0) : 0;
-	
-	// open image:
-	Pix *image = pixRead(_file.c_str());
-	if (!image){
-		print(log_debug, "pixRead returned NULL!", name().c_str());
-		return 0;
-	}
 
 	// rotate image if parameter set:
 	if (fabs(_rotate)>=0.1){
