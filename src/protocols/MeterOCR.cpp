@@ -712,6 +712,20 @@ bool MeterOCR::checkCapV4L2Dev()
 		return false;
 	}
 
+	// check supported RGB32 format:
+	int r;
+	int index=0;
+	do {
+		struct v4l2_fmtdesc bt;
+		memset(&bt, 0, sizeof(bt));
+		bt.index = index++;
+		bt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		r = xioctl(_v4l2_fd, VIDIOC_ENUM_FMT, &bt);
+		if (r==0){
+			print(log_info, " supported format: %s", name().c_str(), bt.description);
+		}
+	} while (r == 0);
+
 	// todo check brightness,...
 
 	return true;
