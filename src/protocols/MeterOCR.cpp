@@ -989,14 +989,15 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
 			return 0;
 		}
-		// read frame!
-		print(log_error,"frame ready!", name().c_str());
 
-		Pix *image = pixCreateHeader( 640, 480, 32); // todo create this just once and don't destroy after read!
+		Pix *image = pixCreateHeader( 640, 480, 16); // todo create this just once and don't destroy after read!
 
 		// readV4L2Frame simply changes the data ptr!
 		bool ok = readV4l2Frame(image);
 		if (!ok) return 0;
+		// read frame!
+		print(log_error,"frame ready!", name().c_str());
+
 	}
 
 	PIXA *debugPixa= _generate_debug_image ? pixaCreate(0) : 0;
