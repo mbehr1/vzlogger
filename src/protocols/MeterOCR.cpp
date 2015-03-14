@@ -726,7 +726,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	fmt.fmt.pix.width = w;
 	fmt.fmt.pix.height = h;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB32; // V4L2_PIX_FMT_YUYV;
 	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
 		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
@@ -817,9 +817,9 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	return true;
 }
 
-Pix *MeterOCR::readV4l2Frame()
+bool MeterOCR::readV4l2Frame(Pix *&image)
 {
-	Pix *toret = 0;
+	if (!image) return false;
 	struct v4l2_buffer buf;
 	memset(&buf, 0, sizeof(buf));
 	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -829,7 +829,7 @@ Pix *MeterOCR::readV4l2Frame()
 		switch (errno) {
 		case EAGAIN:
 			print(log_error, "VIDIOC_DQBUF failed with EAGAIN", name().c_str());
-			return 0;
+			return false;
 
 		case EIO:
 			/* Could ignore EIO, see spec. */
@@ -838,13 +838,13 @@ Pix *MeterOCR::readV4l2Frame()
 
 		default:
 			print(log_error, "VIDIOC_DQBUF failed", name().c_str());
-			return 0;
+			return false;
 		}
 	}
 
 	if(buf.index >= _v4l2_nbuffers) {
 		print(log_error, "buf.index >= nbuffers!", name().c_str());
-		return 0;
+		return false;
 	}
 
 	// now we have the image data in buffers[buf.index].start with len buf.bytesused
@@ -855,10 +855,17 @@ Pix *MeterOCR::readV4l2Frame()
 	// return buffer:
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
 		print(log_error, "VIDIOC_QBUF failed", name().c_str());
-		return 0;
+		return false;
 	}
 
-	return toret;
+	// check that the data is big enough:
+	int32_t w,h,d;
+	pixGetDimensions(image, &w, &h, &d);
+	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)d))
+		pixSetData(image, (unsigned int*) (_v4l2_buffers[buf.index].start));
+	else return false;
+
+	return true;
 }
 
 bool MeterOCR::isNotifiedFileChanged()
@@ -963,8 +970,12 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		}
 		// read frame!
 		print(log_error,"frame ready!", name().c_str());
-		image = readV4l2Frame();
-		if (!image) return 0;
+
+		Pix *image = pixCreateHeader( 640, 480, 32); // todo create this just once and don't destroy after read!
+
+		// readV4L2Frame simply changes the data ptr!
+		bool ok = readV4l2Frame(image);
+		if (!ok) return 0;
 	}
 
 	PIXA *debugPixa= _generate_debug_image ? pixaCreate(0) : 0;
@@ -974,6 +985,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		Pix *image_rot = pixRotate(image, radians(_rotate), L_ROTATE_AREA_MAP, L_BRING_IN_WHITE, 0,0);
 	
 		if (image_rot){
+			if (_use_v4l2) pixSetData(image, 0);
 			pixDestroy(&image);
 			image = image_rot;
 			image_rot=0;
@@ -1081,7 +1093,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 				if (i>=max_reads) break;
 			}
 		}
-
+	if (_use_v4l2) pixSetData(image, 0);
 	pixDestroy(&image);
 
 	// we provide those values to the recognizers even if not impulses wanted

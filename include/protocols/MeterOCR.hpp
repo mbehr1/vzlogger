@@ -145,7 +145,7 @@ protected:
 
 	bool checkCapV4L2Dev();
 	bool initV4L2Dev(unsigned int w, unsigned int h);
-	Pix *readV4l2Frame();
+	bool readV4l2Frame(Pix *&image);
 
 	struct buffer {
 		void *start;
