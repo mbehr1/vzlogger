@@ -664,7 +664,7 @@ int MeterOCR::open() {
 		}
 
 		if (!checkCapV4L2Dev()) {
-			print(log_error, "capabilities '%s' not sufficient", name().c_str(), _file.c_str());
+			print(log_error, "capabilities of '%s' not sufficient", name().c_str(), _file.c_str());
 			::close(_v4l2_fd);
 			_v4l2_fd = -1;
 			return ERR;
@@ -714,6 +714,7 @@ bool MeterOCR::checkCapV4L2Dev()
 
 	// check supported RGB32 format:
 	int r;
+	bool has_yuyv = false;
 	int index=0;
 	do {
 		struct v4l2_fmtdesc bt;
@@ -721,10 +722,16 @@ bool MeterOCR::checkCapV4L2Dev()
 		bt.index = index++;
 		bt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		r = xioctl(_v4l2_fd, VIDIOC_ENUM_FMT, &bt);
-		if (r==0){
+		if (r == 0){
+			if (bt.pixelformat == V4L2_PIX_FMT_YUYV) has_yuyv = true;
 			print(log_info, " supported format: %s", name().c_str(), bt.description);
 		}
 	} while (r == 0);
+
+	if (!has_yuyv) {
+		print(log_error, "'%s' does not support V4L2_PIX_FMT_YUYV", name().c_str(), _file.c_str());
+		return false;
+	}
 
 	// todo check brightness,...
 
@@ -740,7 +747,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	fmt.fmt.pix.width = w;
 	fmt.fmt.pix.height = h;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB32; // V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
 	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
 		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
