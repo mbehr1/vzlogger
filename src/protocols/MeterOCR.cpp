@@ -889,7 +889,7 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	// check that the data is big enough:
 	int32_t w,h,d;
 	pixGetDimensions(image, &w, &h, &d);
-	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)d)) {
+	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)(d/16))) { // we expect half of the data we need
 		// convert from yuyv(yuv2) to RGBA:
 		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w/2,
 							   (uint8_t *)pixGetData(image), w,
