@@ -894,6 +894,9 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w*2,
 							   (uint8_t *)pixGetData(image), w*4,
 							   w, h)) {
+			(void)libyuv::ARGBToBGRA((uint8_t *)pixGetData(image), w*4,
+							   (uint8_t *)pixGetData(image), w*4,
+							   w, h);
 			toRet = true;
 		}
 	}
