@@ -556,7 +556,7 @@ bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap
 		// normalize val to avg pixel value (0-255):
 		val /= (w*h);
 		if (val>maxVal) maxVal = val;
-		print(log_info, "recognizerBinary detected maxval = %d val=%d!\n", "ocr", maxVal, val);
+		print(log_finest, "recognizerBinary detected maxval = %d val=%d!\n", "ocr", maxVal, val);
 
 		// now do edge detection:
 		bool new_state = _last_state;
@@ -574,32 +574,11 @@ bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap
 			if (new_state) {
 				// signal impulse:
 				readings[b.identifier].value = 1;
+				print(log_info, "recognizerBinary detected impulse maxval = %d val=%d!\n", "ocr", maxVal, val);
 			}
 			_last_state = new_state;
 		}
 
-
-//		pixSetPixel(image, cx, cy, 0x00ff0000);
-/*
-		if (b.conf_id.length()) readings[b.identifier].conf_id=b.conf_id;
-		if (conf) {
-			if (old_readings){
-				// try to debounce if old value is available:
-				ReadsMap::const_iterator it = (*old_readings).find(b.identifier);
-				if (it!=old_readings->end()){
-					double ip;
-					int prev_dig = lrint(modf( (*it).second.value/ pow(10, b.scaler+1), &ip)*10); // prev digit as 0.x
-					nr = debounce(prev_dig, fnr);
-				}
-			}
-			readings[b.identifier].value += (double)nr * pow(10, b.scaler);
-			if (conf<readings[b.identifier].min_conf)
-				readings[b.identifier].min_conf = conf; // TODO p2 (by ratio detected pixel vs. non detected vs. abs(degFrom-degTo)
-		}else{
-			readings[b.identifier].value = NAN;
-			readings[b.identifier].min_conf = 0;
-		}
-		*/
 	}
 
 	saveDebugImage(debugPixa, image, "scanned");
@@ -1064,7 +1043,7 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	}
 
 	// now we have the image data in buffers[buf.index].start with len buf.bytesused
-	print(log_info, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
+	print(log_finest, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
 
 	// copy into a Pix image (!would be better if we don't need to copy!)
 	// check that the data is big enough:
@@ -1207,7 +1186,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			return 0;
 		}
 		// read frame!
-		print(log_info,"frame ready!", name().c_str());
+		print(log_finest,"frame ready!", name().c_str());
 
 	}
 
