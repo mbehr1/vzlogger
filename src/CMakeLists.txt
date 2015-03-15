@@ -6,6 +6,7 @@
 
 add_subdirectory(api)
 add_subdirectory(protocols)
+add_subdirectory(libyuv)
 
 ## local interface support
 #####################################################################
@@ -43,7 +44,7 @@ add_library(vz ${libvz_srcs})
 
 add_executable(vzlogger ${vzlogger_srcs})
 
-target_link_libraries(vzlogger proto vz vz-api)
+target_link_libraries(vzlogger proto vz vz-api libyuv)
 target_link_libraries(vzlogger ${JSON_LIBRARY})
 if(SML_FOUND)
   target_link_libraries(vzlogger ${SML_LIBRARY})

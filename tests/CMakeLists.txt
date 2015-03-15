@@ -26,6 +26,7 @@ endif( NOT ENABLE_SML)
 add_executable(vzlogger_unit_tests ${test_sources} ../src/CurlSessionProvider.cpp)
 
 target_link_libraries(vzlogger_unit_tests
+    libyuv
     ${GTEST_LIBS_DIR}/libgtest.a
     ${GMOCK_LIBS_DIR}/libgmock.a
     ${JSON_LIBRARY}

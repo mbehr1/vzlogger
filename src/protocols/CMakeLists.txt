@@ -12,11 +12,7 @@ if( OCR_TESSERACT_SUPPORT )
   set(ocr_srcs MeterOCR.cpp MeterOCRTesseract.cpp)
 else ()
     if (OCR_SUPPORT)
-        set(ocr_srcs MeterOCR.cpp
-            ../../../../libyuv/source/convert_argb.cc
-            ../../../../libyuv/source/planar_functions.cc
-            ../../../../libyuv/source/row_common.cc
-        )
+        set(ocr_srcs MeterOCR.cpp)
     else ()
         set(ocr_srcs "")
     endif (OCR_SUPPORT)

@@ -132,7 +132,7 @@ find_library(LIBGCRYPT gcrypt)
 include_directories(${CMAKE_BINARY_DIR})
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR})
-include_directories("/usr/lib/include") # todo add libyuv properly
+include_directories(${CMAKE_SOURCE_DIR}/include/libyuv) # todo add libyuv properly
 
 add_definitions(-DHAVE_CONFIG_HPP)
 myconfigure_file(
