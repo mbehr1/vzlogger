@@ -469,7 +469,9 @@ int MeterOCR::RecognizerNeedle::roundBasedOnSmallerDigits(const int curNr, const
 
 MeterOCR::RecognizerBinary::RecognizerBinary(struct json_object *jr) :
 	Recognizer("binary", jr),
-	_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN)
+	_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN),
+	_last_state(false), _EDGE_HIGH (70), _EDGE_LOW (30)
+
 {
 	// check for _kernelColorString
 	struct json_object *value;
@@ -478,7 +480,11 @@ MeterOCR::RecognizerBinary::RecognizerBinary(struct json_object *jr) :
 		if (_kernelColorString.length())
 			_kernelColorString.append(" "); // append a space to ease kernelCreateFromString
 	}
-	// check whether all are circles:
+	// check whether all are boxes:
+	// and currently just one allowed:
+	if (_boxes.size()!=1) {
+		throw vz::OptionNotFoundException("Recognizer binary just needs exactly one boundingbox");
+	}
 	for (StdListBB::iterator it= _boxes.begin(); it!= _boxes.end(); ++it){
 		const BoundingBox &b = *it;
 		if (b.boxType != BoundingBox::BOX) throw vz::OptionNotFoundException("boundingbox without box");
@@ -527,15 +533,17 @@ bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap
 
 
 	// now iterate for each bounding box defined:
+	// till now we assume it's just one! (see Constructor)
 	for (StdListBB::iterator it = _boxes.begin(); it != _boxes.end(); ++it){ // let's stick to begin not cbegin (c++11)
 		BoundingBox &b = *it;
-		int conf;
 		int cx = b.x1 - _min_x;
 		int cy = b.y1 - _min_y;
 		int w = b.x2 - b.x1;
 		int h = b.y2 - b.y1;
 
-		conf=100;
+		if (w<=0) w=1;
+		if (h<=0) h=1;
+
 		unsigned long val = 0;
 		static unsigned long maxVal = 0;
 		for (int y = cy; y<h; ++y)
@@ -545,12 +553,31 @@ bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap
 				val += (c >> 24); // sum of all red pixels
 			}
 
-		if (val>(0x30ul*w*h)){
-			conf=100;
-			print(log_error, "recognizerBinary detected high val=%d!\n", "ocr", val);
-		}
+		// normalize val to avg pixel value (0-255):
+		val /= (w*h);
 		if (val>maxVal) maxVal = val;
-		print(log_info, "conf = %d, val = %d, maxVal = %d", "ocr", conf, val, maxVal);
+		print(log_info, "recognizerBinary detected maxval = %d val=%d!\n", "ocr", maxVal, val);
+
+		// now do edge detection:
+		bool new_state = _last_state;
+		if (!_last_state) {
+			// edge low->high?
+			if (val > _EDGE_HIGH)
+				new_state = true;
+		} else {
+			// edge high->low?
+			if (val < _EDGE_LOW)
+				new_state = false;
+		}
+
+		if (new_state != _last_state) {
+			if (new_state) {
+				// signal impulse:
+				readings[b.identifier].value = 1;
+			}
+			_last_state = new_state;
+		}
+
 
 //		pixSetPixel(image, cx, cy, 0x00ff0000);
 /*

@@ -153,6 +153,9 @@ protected:
 	friend class MeterOCR_Test;
 	int _min_x, _min_y, _max_x, _max_y;
 	std::string _kernelColorString; // for kernelCreateFromString
+	bool _last_state;
+	unsigned long _EDGE_HIGH;
+	unsigned long _EDGE_LOW;
 };
 
 	bool checkCapV4L2Dev();
