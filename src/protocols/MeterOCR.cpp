@@ -63,6 +63,8 @@ Quick patent check: (no warranties, just my personal opinion, only checked as I 
 #include <json-c/json.h>
 
 #include <linux/videodev2.h>
+#include <libyuv.h>
+
 
 /* install libleptonica: 
 
@@ -77,6 +79,17 @@ sudo ldconfig
 
 */
 
+/* install libyuv
+
+  git clone http://git.chromium.org/external/libyuv.git
+  cd libyuv
+  mkdir out
+  cd out
+  cmake -DCMAKE_INSTALL_PREFIX="/usr/lib" -DCMAKE_BUILD_TYPE="Release" ..
+  cmake --build . --config Release
+  sudo cmake --build . --target install --config Release
+
+*/
 
 /* install tesseract: (only if needed, i.e. ENABLE_OCR_TESSERACT defined)
 sudo apt-get install libtool libpng-dev libjpeg-dev
@@ -840,6 +853,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 
 bool MeterOCR::readV4l2Frame(Pix *&image)
 {
+	bool toRet = false;
 	if (!image) return false;
 	struct v4l2_buffer buf;
 	memset(&buf, 0, sizeof(buf));
@@ -872,21 +886,24 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	print(log_error, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
 
 	// copy into a Pix image (!would be better if we don't need to copy!)
-
+	// check that the data is big enough:
+	int32_t w,h,d;
+	pixGetDimensions(image, &w, &h, &d);
+	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)d)) {
+		// convert from yuyv(yuv2) to RGBA:
+		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w/2,
+							   (uint8_t *)pixGetData(image), w,
+							   w, h)) {
+			toRet = true;
+		}
+	}
 	// return buffer:
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
 		print(log_error, "VIDIOC_QBUF failed", name().c_str());
 		return false;
 	}
 
-	// check that the data is big enough:
-	int32_t w,h,d;
-	pixGetDimensions(image, &w, &h, &d);
-	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)d))
-		pixSetData(image, (unsigned int*) (_v4l2_buffers[buf.index].start));
-	else return false;
-
-	return true;
+	return toRet;
 }
 
 bool MeterOCR::isNotifiedFileChanged()
@@ -990,11 +1007,14 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			return 0;
 		}
 
-		Pix *image = pixCreateHeader( 640, 480, 16); // todo create this just once and don't destroy after read!
+		Pix *image = pixCreateNoInit( 640, 480, 16); // todo create this just once and don't destroy after read!
 
 		// readV4L2Frame simply changes the data ptr!
 		bool ok = readV4l2Frame(image);
-		if (!ok) return 0;
+		if (!ok) {
+			pixDestroy(&image);
+			return 0;
+		}
 		// read frame!
 		print(log_error,"frame ready!", name().c_str());
 
@@ -1007,7 +1027,6 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		Pix *image_rot = pixRotate(image, radians(_rotate), L_ROTATE_AREA_MAP, L_BRING_IN_WHITE, 0,0);
 	
 		if (image_rot){
-			if (_use_v4l2) pixSetData(image, 0);
 			pixDestroy(&image);
 			image = image_rot;
 			image_rot=0;
@@ -1115,7 +1134,6 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 				if (i>=max_reads) break;
 			}
 		}
-	if (_use_v4l2) pixSetData(image, 0);
 	pixDestroy(&image);
 
 	// we provide those values to the recognizers even if not impulses wanted
