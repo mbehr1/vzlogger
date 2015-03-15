@@ -851,6 +851,47 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	return true;
 }
 
+/*
+ * YUV422toRGB888 from
+ * v4l2grab Version 0.1                                                  *
+ *   Copyright (C) 2009 by Tobias MÃ¼ller                                   *
+ *   Tobias_Mueller@twam.info
+ * licensed under gpl v2.
+ * modified to handle RGBA
+ * */
+
+static void YUV422toRGBA888(int width, int height, unsigned char *src, unsigned char *dst)
+{
+  int line, column;
+  unsigned char *py, *pu, *pv;
+  unsigned char *tmp = dst;
+
+  /* In this format each four bytes is two pixels. Each four bytes is two Y's, a Cb and a Cr.
+	 Each Y goes to one of the pixels, and the Cb and Cr belong to both pixels. */
+  py = src;
+  pu = src + 1;
+  pv = src + 3;
+
+  #define CLIP(x) ( (x)>=0xFF ? 0xFF : ( (x) <= 0x00 ? 0x00 : (x) ) )
+
+  for (line = 0; line < height; ++line) {
+	for (column = 0; column < width; ++column) {
+	  *tmp++ = CLIP((double)*py + 1.402*((double)*pv-128.0));
+	  *tmp++ = CLIP((double)*py - 0.344*((double)*pu-128.0) - 0.714*((double)*pv-128.0));
+	  *tmp++ = CLIP((double)*py + 1.772*((double)*pu-128.0));
+	  *tmp++ = 0; // alpha
+	  // increase py every time
+	  py += 2;
+	  // increase pu,pv every second time
+	  if ((column & 1)==1) {
+		pu += 4;
+		pv += 4;
+	  }
+	}
+  }
+}
+
+
 bool MeterOCR::readV4l2Frame(Pix *&image)
 {
 	bool toRet = false;
@@ -891,6 +932,7 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	pixGetDimensions(image, &w, &h, &d);
 	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)(d/16))) { // we expect half of the data we need
 		// convert from yuyv(yuv2) to RGBA:
+	/*
 		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w*2,
 							   (uint8_t *)pixGetData(image), w*4,
 							   w, h)) {
@@ -898,7 +940,9 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 							   (uint8_t *)pixGetData(image), w*4,
 							   w, h);
 			toRet = true;
-		}
+		} */
+		YUV422toRGBA888(w, h,(uint8_t*)(_v4l2_buffers[buf.index].start), (uint8_t *)pixGetData(image) );
+		toRet = true;
 	}
 	// return buffer:
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
