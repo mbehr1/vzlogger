@@ -1037,7 +1037,7 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	}
 
 	// now we have the image data in buffers[buf.index].start with len buf.bytesused
-	print(log_error, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
+	print(log_info, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
 
 	// copy into a Pix image (!would be better if we don't need to copy!)
 	// check that the data is big enough:
