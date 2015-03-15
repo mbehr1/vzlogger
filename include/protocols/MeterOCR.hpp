@@ -143,6 +143,18 @@ protected:
 	static const unsigned int RED_COLOR_LIMIT = 0x80000000;
 };
 
+class RecognizerBinary : public Recognizer
+{
+public:
+	RecognizerBinary(struct json_object *);
+	bool recognize(PIX *image, int dX, int dY, ReadsMap &reads, const ReadsMap *old_reads, PIXA *debugPixa );
+	virtual ~RecognizerBinary();
+protected:
+	friend class MeterOCR_Test;
+	int _min_x, _min_y, _max_x, _max_y;
+	std::string _kernelColorString; // for kernelCreateFromString
+};
+
 	bool checkCapV4L2Dev();
 	bool initV4L2Dev(unsigned int w, unsigned int h);
 	bool readV4l2Frame(Pix *&image);

@@ -63,8 +63,6 @@ Quick patent check: (no warranties, just my personal opinion, only checked as I 
 #include <json-c/json.h>
 
 #include <linux/videodev2.h>
-#include <libyuv.h>
-
 
 /* install libleptonica: 
 
@@ -469,6 +467,120 @@ int MeterOCR::RecognizerNeedle::roundBasedOnSmallerDigits(const int curNr, const
 	return nr;
 }
 
+MeterOCR::RecognizerBinary::RecognizerBinary(struct json_object *jr) :
+	Recognizer("binary", jr),
+	_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN)
+{
+	// check for _kernelColorString
+	struct json_object *value;
+	if (json_object_object_get_ex(jr, "kernelColorString", &value)) {
+		_kernelColorString = json_object_get_string(value);
+		if (_kernelColorString.length())
+			_kernelColorString.append(" "); // append a space to ease kernelCreateFromString
+	}
+	// check whether all are circles:
+	for (StdListBB::iterator it= _boxes.begin(); it!= _boxes.end(); ++it){
+		const BoundingBox &b = *it;
+		if (b.boxType != BoundingBox::BOX) throw vz::OptionNotFoundException("boundingbox without box");
+		if (b.x1 < _min_x) _min_x=b.x1;
+		if (b.y1 < _min_y) _min_y=b.y1;
+		if (b.x2 > _max_x) _max_x = b.x2;
+		if (b.y2 > _max_y) _max_y = b.y2;
+	}
+}
+
+MeterOCR::RecognizerBinary::~RecognizerBinary()
+{
+}
+
+bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap &readings, const ReadsMap *old_readings, PIXA *debugPixa )
+{
+	if (!imageO) return false;
+	// 1st step: crop the image:
+	PIX *image=pixClone(imageO);
+
+	// now crop the image if possible:
+	print(log_debug, "Cropping image to (%d,%d)-(%d,%d)", "ocr", _min_x, _min_y, _max_x, _max_y);
+	PIX *image2 = pixCreate(_max_x-_min_x, _max_y - _min_y, pixGetDepth(image));
+	pixCopyResolution(image2, image);
+	pixCopyColormap(image2, image);
+	pixRasterop(image2, 0, 0, _max_x-_min_x, _max_y - _min_y, PIX_SRC, image, _min_x+dX, _min_y+dY);
+	pixDestroy(&image);
+	image=image2;
+	saveDebugImage(debugPixa, image, "cropped");
+
+	// now filter on red color either using provided matrix or std. internally the needles have to be red.
+	L_KERNEL *kel;
+	if (_kernelColorString.length())
+		kel = kernelCreateFromString(3, 3, 0, 0, _kernelColorString.c_str());
+	else { // use default: only red channel amplified
+		kel = kernelCreate(3, 3);
+		kernelSetElement(kel, 0, 0, 2.0);
+		kernelSetElement(kel, 0, 1, -1.0);
+		kernelSetElement(kel, 0, 2, -1.0);
+	}
+
+	image2 = pixMultMatrixColor(image, kel);
+	pixDestroy(&image);
+	image=image2;
+	saveDebugImage(debugPixa, image, "multcolor");
+
+
+	// now iterate for each bounding box defined:
+	for (StdListBB::iterator it = _boxes.begin(); it != _boxes.end(); ++it){ // let's stick to begin not cbegin (c++11)
+		BoundingBox &b = *it;
+		int conf;
+		int cx = b.x1 - _min_x;
+		int cy = b.y1 - _min_y;
+		int w = b.x2 - b.x1;
+		int h = b.y2 - b.y1;
+
+		conf=100;
+		unsigned long val = 0;
+		static unsigned long maxVal = 0;
+		for (int y = cy; y<h; ++y)
+			for (int x = cx; x<w; ++x) {
+				unsigned int c=0;
+				(void)pixGetPixel(image, cx, cy, &c);
+				val += (c >> 24); // sum of all red pixels
+			}
+
+		if (val>(0x30ul*w*h)){
+			conf=100;
+			print(log_error, "recognizerBinary detected impulse val=%d!\n", "ocr", val);
+		}
+		if (val>maxVal) maxVal = val;
+		print(log_info, "conf = %d, val = %d, maxVal = %d", "ocr", conf, val, maxVal);
+
+//		pixSetPixel(image, cx, cy, 0x00ff0000);
+/*
+		if (b.conf_id.length()) readings[b.identifier].conf_id=b.conf_id;
+		if (conf) {
+			if (old_readings){
+				// try to debounce if old value is available:
+				ReadsMap::const_iterator it = (*old_readings).find(b.identifier);
+				if (it!=old_readings->end()){
+					double ip;
+					int prev_dig = lrint(modf( (*it).second.value/ pow(10, b.scaler+1), &ip)*10); // prev digit as 0.x
+					nr = debounce(prev_dig, fnr);
+				}
+			}
+			readings[b.identifier].value += (double)nr * pow(10, b.scaler);
+			if (conf<readings[b.identifier].min_conf)
+				readings[b.identifier].min_conf = conf; // TODO p2 (by ratio detected pixel vs. non detected vs. abs(degFrom-degTo)
+		}else{
+			readings[b.identifier].value = NAN;
+			readings[b.identifier].min_conf = 0;
+		}
+		*/
+	}
+
+	saveDebugImage(debugPixa, image, "scanned");
+	pixDestroy(&image);
+
+	return true;
+}
+
 int debounce(int iprev, double fnew)
 {
 	// check old value. if current value is really close to it (+/-1), wait a bit (i.e. round later)
@@ -606,6 +718,7 @@ MeterOCR::MeterOCR(std::list<Option> options)
 				if (0 == rtype.compare("tesseract")) r = new RecognizerTesseract(jb); else
 #endif
 				if (0 == rtype.compare("needle")) r = new RecognizerNeedle(jb);
+				if (0 == rtype.compare("binary")) r = new RecognizerBinary(jb);
 				if (!r) throw vz::OptionNotFoundException("recognizer type unknown!");
 				_recognizer.push_back(r);
 			}
@@ -853,8 +966,8 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 
 /*
  * YUV422toRGB888 from
- * v4l2grab Version 0.1                                                  *
- *   Copyright (C) 2009 by Tobias MÃ¼ller                                   *
+ * v4l2grab Version 0.1
+ *   Copyright (C) 2009 by Tobias Mueller
  *   Tobias_Mueller@twam.info
  * licensed under gpl v2.
  * modified to handle RGBA
@@ -1031,6 +1144,10 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			print(log_debug, "pixRead returned NULL!", name().c_str());
 			return 0;
 		}
+		int32_t w,h,d;
+		pixGetDimensions(image, &w, &h, &d);
+		print(log_info, "image = %d x %d with %d bits each pixel", name().c_str(),
+			  w, h, d );
 	} else { // v4l2
 		// capture an image:
 		fd_set fds;
