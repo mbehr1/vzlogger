@@ -877,9 +877,9 @@ static void YUV422toRGBA888(int width, int height, unsigned char *src, unsigned 
   for (line = 0; line < height; ++line) {
 	for (column = 0; column < width; ++column) {
 	  *tmp++ = 0; // alpha // for little endianess! TODO doesn't work on big endian!
-	  *tmp++ = CLIP((double)*py + 1.402*((double)*pv-128.0));
-	  *tmp++ = CLIP((double)*py - 0.344*((double)*pu-128.0) - 0.714*((double)*pv-128.0));
-	  *tmp++ = CLIP((double)*py + 1.772*((double)*pu-128.0));
+	  *tmp++ = CLIP((double)*py + 1.772*((double)*pu-128.0)); // B
+	  *tmp++ = CLIP((double)*py - 0.344*((double)*pu-128.0) - 0.714*((double)*pv-128.0)); // G
+	  *tmp++ = CLIP((double)*py + 1.402*((double)*pv-128.0)); // R
 	  // increase py every time
 	  py += 2;
 	  // increase pu,pv every second time
