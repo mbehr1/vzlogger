@@ -1063,6 +1063,11 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		// output debugpix:
 		PIX *pixt = pixaDisplay(debugPixa, 0, 0);
 		std::string outfilename = _use_v4l2 ? std::string("vzlogger") : _file;
+		if (_use_v4l2) {
+			static char nr='1';
+			outfilename.append(std::string(1, nr++));
+			if (nr>'9') nr = '1';
+		}
 		outfilename.append("_debug.jpg");
 		{
 			FILE *fp = fopenWriteStream(outfilename.c_str(), "wb+");
