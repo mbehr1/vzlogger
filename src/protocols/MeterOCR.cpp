@@ -547,7 +547,7 @@ bool MeterOCR::RecognizerBinary::recognize(PIX *imageO, int dX, int dY, ReadsMap
 
 		if (val>(0x30ul*w*h)){
 			conf=100;
-			print(log_error, "recognizerBinary detected impulse val=%d!\n", "ocr", val);
+			print(log_error, "recognizerBinary detected high val=%d!\n", "ocr", val);
 		}
 		if (val>maxVal) maxVal = val;
 		print(log_info, "conf = %d, val = %d, maxVal = %d", "ocr", conf, val, maxVal);
@@ -1180,7 +1180,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			return 0;
 		}
 		// read frame!
-		print(log_error,"frame ready!", name().c_str());
+		print(log_info,"frame ready!", name().c_str());
 
 	}
 
