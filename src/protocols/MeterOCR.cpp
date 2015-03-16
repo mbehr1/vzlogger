@@ -63,6 +63,7 @@ Quick patent check: (no warranties, just my personal opinion, only checked as I 
 #include <json-c/json.h>
 
 #include <linux/videodev2.h>
+#include <assert.h>
 
 /* install libleptonica: 
 
@@ -629,6 +630,8 @@ MeterOCR::RecognizerNeedle::~RecognizerNeedle()
 
 MeterOCR::MeterOCR(std::list<Option> options)
 		: Protocol("ocr"), _use_v4l2(false), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
+		_v4l2_cap_size_x(320), _v4l2_cap_size_y(240),
+		_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN),
 		_notify_fd(-1), _forced_file_changed(true), _impulses(0), _rotate(0.0),
 		_autofix_range(0), _autofix_x(-1), _autofix_y(-1), _last_reads(0), _generate_debug_image(false)
 {
@@ -727,6 +730,12 @@ MeterOCR::MeterOCR(std::list<Option> options)
 				if (0 == rtype.compare("binary")) r = new RecognizerBinary(jb);
 				if (!r) throw vz::OptionNotFoundException("recognizer type unknown!");
 				_recognizer.push_back(r);
+				int minX, minY, maxX, maxY;
+				r->getCaptureCoords(minX, minY, maxX, maxY);
+				if (minX < _min_x) _min_x = minX;
+				if (minY < _min_y) _min_y = minY;
+				if (maxX > _max_x) _max_x = maxX;
+				if (maxY > _max_y) _max_y = maxY;
 			}
 		} else {
 			throw vz::OptionNotFoundException("no recognizer given");
@@ -739,7 +748,6 @@ MeterOCR::MeterOCR(std::list<Option> options)
 		print(log_error, "Failed to parse 'recognizer'", name().c_str());
 		throw;
 	}
-
 }
 
 void MeterOCR::Recognizer::saveDebugImage(PIXA *debugPixa, PIX *image, const char *title)
@@ -802,7 +810,7 @@ int MeterOCR::open() {
 			return ERR;
 		}
 
-		if (!initV4L2Dev(320, 240)) {
+		if (!initV4L2Dev(_v4l2_cap_size_x, _v4l2_cap_size_y)) {
 			print(log_error, "couldn't init' '%s'", name().c_str(), _file.c_str());
 			::close(_v4l2_fd);
 			_v4l2_fd = -1;
@@ -914,6 +922,18 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		  streamparm.parm.capture.timeperframe.numerator,
 		  streamparm.parm.capture.timeperframe.denominator);
 
+	struct v4l2_format fmt;
+
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.fmt.pix.width = w;
+	fmt.fmt.pix.height = h;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
+		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
+		return false;
+	}
 
 	// reset VIDIOC_CROPCAP
 	struct v4l2_cropcap cropcap;
@@ -940,22 +960,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		print(log_error, "cropping not supported. Error %d, %s at VIDIOC_S_CROP", name().c_str(), errno, strerror(errno));
 	}
 
-
-	struct v4l2_format fmt;
-
-	memset(&fmt, 0, sizeof(fmt));
-	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width = w;
-	fmt.fmt.pix.height = h;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
-	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
-		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
-		return false;
-	}
-
 	// now set cropping to wanted rectangle: todo
-
 	if (supportscrop) {
 		// todo
 	}
@@ -1054,26 +1059,33 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
  * modified to handle RGBA
  * */
 
-static void YUV422toRGBA888(int width, int height, unsigned char *src, unsigned char *dst)
+static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int stride_d_h,
+							int s_x, int s_y, int width, int height, unsigned char *src, unsigned char *dst)
 {
   int line, column;
   unsigned char *py, *pu, *pv;
-  unsigned char *tmp = dst;
+  unsigned char *tmp = dst + (4*(stride_d_w * s_y) + s_x);
+
+  unsigned char *ssrc = src + (2*((stride_s_w * s_y) + s_x));
+  int skip_per_line = stride_s_w - width;
+  assert(skip_per_line %1 == 0); // must be even!
+  assert(s_x % 1 == 0);
+  assert(width % 1 == 0);
 
   /* In this format each four bytes is two pixels. Each four bytes is two Y's, a Cb and a Cr.
 	 Each Y goes to one of the pixels, and the Cb and Cr belong to both pixels. */
-  py = src;
-  pu = src + 1;
-  pv = src + 3;
+  py = ssrc;
+  pu = ssrc + 1;
+  pv = ssrc + 3;
 
   #define CLIP(x) ( (x)>=0xFF ? 0xFF : ( (x) <= 0x00 ? 0x00 : (x) ) )
 
   for (line = 0; line < height; ++line) {
 	for (column = 0; column < width; ++column) {
 	  *tmp++ = 0; // alpha // for little endianess! TODO doesn't work on big endian!
-	  *tmp++ = CLIP((double)*py + 1.772*((double)*pu-128.0)); // B
-	  *tmp++ = CLIP((double)*py - 0.344*((double)*pu-128.0) - 0.714*((double)*pv-128.0)); // G
-	  *tmp++ = CLIP((double)*py + 1.402*((double)*pv-128.0)); // R
+	  *tmp++ = CLIP((float)*py + 1.772*((float)*pu-128.0)); // B
+	  *tmp++ = CLIP((float)*py - 0.344*((float)*pu-128.0) - 0.714*((float)*pv-128.0)); // G
+	  *tmp++ = CLIP((float)*py + 1.402*((float)*pv-128.0)); // R
 	  // increase py every time
 	  py += 2;
 	  // increase pu,pv every second time
@@ -1082,6 +1094,11 @@ static void YUV422toRGBA888(int width, int height, unsigned char *src, unsigned 
 		pv += 4;
 	  }
 	}
+	// skip rest of stride_s_w:
+	py += 2*skip_per_line;
+	pu += 2*skip_per_line;
+	pv += 2*skip_per_line;
+	tmp += 4*skip_per_line;
   }
 }
 
@@ -1124,7 +1141,10 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 	// check that the data is big enough:
 	int32_t w,h,d;
 	pixGetDimensions(image, &w, &h, &d);
-	if ( buf.bytesused == ((unsigned int)w*(unsigned int)h*(unsigned int)(d/16))) { // we expect half of the data we need
+	// image can be smaller than cap_size_x/y in this case render to
+	// _min_x, _min_y,...
+
+	if ( buf.bytesused >= ((unsigned int)w*(unsigned int)h*(unsigned int)(d/16))) { // we expect half of the data we need
 		// convert from yuyv(yuv2) to RGBA:
 	/*
 		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w*2,
@@ -1135,7 +1155,8 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 							   w, h);
 			toRet = true;
 		} */
-		YUV422toRGBA888(w, h,(uint8_t*)(_v4l2_buffers[buf.index].start), (uint8_t *)pixGetData(image) );
+		YUV422toRGBA888(_v4l2_cap_size_x,_v4l2_cap_size_y, w,h, _min_x, _min_y, _max_x - _min_x, _max_y - _min_y, (uint8_t*)(_v4l2_buffers[buf.index].start),
+				(uint8_t *)pixGetData(image) );
 		toRet = true;
 	}
 	// return buffer:
@@ -1251,8 +1272,15 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
 			return 0;
 		}
+		if (_max_x > _v4l2_cap_size_x) _max_x = _v4l2_cap_size_x;
+		if (_max_y > _v4l2_cap_size_y) _max_y = _v4l2_cap_size_y;
+		if (_min_x < 0 ) _min_x = 0;
+		if (_min_y < 0 ) _min_y = 0;
+		if (_min_x > _max_x) _min_x = _max_x;
+		if (_min_y > _max_y) _min_y = _max_y; // todo do this in contructor
 
-		image = pixCreateNoInit( 320, 240, 32); // todo create this just once and don't destroy after read!
+		image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32); // todo create this just once and don't destroy after read!
+		// todo optimize further to use just _max_x - _min_x width,... (needs different offset calc later...)
 
 		// readV4L2Frame simply changes the data ptr!
 		bool ok = readV4l2Frame(image);

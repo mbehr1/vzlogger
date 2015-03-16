@@ -101,6 +101,7 @@ public:
 	Recognizer(const std::string &type, struct json_object *);
 	virtual bool recognize(PIX *image, int dX, int dY, ReadsMap &reads, const ReadsMap *old_reads, PIXA *debugPixa ) = 0;
 	virtual ~Recognizer(){};
+	virtual void getCaptureCoords(int &minX, int &minY, int &maxX, int &maxY)=0;
 protected:
 	void saveDebugImage(PIXA* debugPixa, PIX* img, const char *title);
 	std::string _type;
@@ -114,6 +115,7 @@ public:
 	RecognizerTesseract(struct json_object *);
 	bool recognize(PIX *image, int dX, int dY, ReadsMap &reads, const ReadsMap *old_reads, PIXA *debugPixa );
 	virtual ~RecognizerTesseract();
+	virtual void getCaptureCoords(int &minX, int &minY, int &maxX, int &maxY) { minX = _min_x1; minY = _min_y1; maxX = _max_x2; maxY = _max_y2; };
 protected:
 	bool initTesseract();
 	bool deinitTesseract();
@@ -135,6 +137,7 @@ public:
 	RecognizerNeedle(struct json_object *);
 	bool recognize(PIX *image, int dX, int dY, ReadsMap &reads, const ReadsMap *old_reads, PIXA *debugPixa );
 	virtual ~RecognizerNeedle();
+	virtual void getCaptureCoords(int &minX, int &minY, int &maxX, int &maxY) { minX = _min_x; minY = _min_y; maxX = _max_x; maxY = _max_y; };
 protected:
 	friend class MeterOCR_Test;
 	int roundBasedOnSmallerDigits(const int curNr, const double &fnr, const double &smaller, int &conf) const;
@@ -149,6 +152,7 @@ public:
 	RecognizerBinary(struct json_object *);
 	bool recognize(PIX *image, int dX, int dY, ReadsMap &reads, const ReadsMap *old_reads, PIXA *debugPixa );
 	virtual ~RecognizerBinary();
+	virtual void getCaptureCoords(int &minX, int &minY, int &maxX, int &maxY) { minX = _min_x; minY = _min_y; maxX = _max_x; maxY = _max_y; };
 protected:
 	friend class MeterOCR_Test;
 	int _min_x, _min_y, _max_x, _max_y;
@@ -172,7 +176,10 @@ protected:
 	int _v4l2_fd;
 	struct buffer *_v4l2_buffers;
 	unsigned int _v4l2_nbuffers;
-    int _notify_fd;
+	int _v4l2_cap_size_x;
+	int _v4l2_cap_size_y;
+	int _min_x, _min_y, _max_x, _max_y;
+	int _notify_fd;
     bool _forced_file_changed;
 	int _impulses;
 	double _rotate;
