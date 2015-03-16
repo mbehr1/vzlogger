@@ -926,6 +926,9 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		print(log_error, "error %d, %s at VIDIOC_CROPCAP", name().c_str(), errno, strerror(errno));
 		return false;
 	}
+	print(log_info, "cropcap.defrect=(%d,%d)x(%d,%d)", name().c_str(),
+		  cropcap.defrect.left, cropcap.defrect.top,
+		  cropcap.defrect.width, cropcap.defrect.height);
 
 	memset (&crop, 0, sizeof (crop));
 	crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -933,13 +936,8 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 
 	bool supportscrop=true;
 	if (-1 == xioctl (_v4l2_fd, VIDIOC_S_CROP, &crop)) {
-		if (errno==EINVAL) {
-			supportscrop = false;
-			print(log_info, "cropping not supported!", name().c_str());
-		} else {
-			print(log_error, "error %d, %s at VIDIOC_S_CROP", name().c_str(), errno, strerror(errno));
-			return false;
-		}
+		supportscrop = false;
+		print(log_error, "cropping not supported. Error %d, %s at VIDIOC_S_CROP", name().c_str(), errno, strerror(errno));
 	}
 
 
@@ -957,9 +955,6 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	}
 
 	// now set cropping to wanted rectangle: todo
-	print(log_info, "cropcap.defrect=(%d,%d)x(%d,%d)", name().c_str(),
-		  cropcap.defrect.left, cropcap.defrect.top,
-		  cropcap.defrect.width, cropcap.defrect.height);
 
 	if (supportscrop) {
 		// todo
