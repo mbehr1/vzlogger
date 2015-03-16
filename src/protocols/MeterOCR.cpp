@@ -1252,7 +1252,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			return 0;
 		}
 
-		image = pixCreateNoInit( 640, 480, 32); // todo create this just once and don't destroy after read!
+		image = pixCreateNoInit( 320, 240, 32); // todo create this just once and don't destroy after read!
 
 		// readV4L2Frame simply changes the data ptr!
 		bool ok = readV4l2Frame(image);
