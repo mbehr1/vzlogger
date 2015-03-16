@@ -899,8 +899,8 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	}
 	streamparm.parm.capture.capturemode = 0; // we don't need MODE_HIGHQUALITY
 	streamparm.parm.capture.extendedmode = 0;
-	streamparm.parm.capture.timeperframe.numerator = 1;
-	streamparm.parm.capture.timeperframe.denominator = 2; // todo let's try with just 2 fps
+	streamparm.parm.capture.timeperframe.numerator = 2;
+	streamparm.parm.capture.timeperframe.denominator = 5; // todo let's try with just 2.5 fps
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_PARM, &streamparm)) {
 		print(log_error, "error %d, %s at VIDIOC_S_PARM", name().c_str(), errno, strerror(errno));
 		return false;
