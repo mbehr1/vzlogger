@@ -844,6 +844,24 @@ bool MeterOCR::checkCapV4L2Dev()
 		return false;
 	}
 
+	// check framerate:
+	struct v4l2_streamparm streamparm;
+	streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_G_PARM, &streamparm)) {
+		print(log_error, "error %d, %s at VIDIOC_G_PARM", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+	print(log_info, "g_parm: capability=%d, capturemode=%d, timeperframe = %d/%d, extendedmode=%d", name().c_str(),
+		  streamparm.parm.capture.capability,
+		  streamparm.parm.capture.capturemode,
+		  streamparm.parm.capture.timeperframe.numerator,
+		  streamparm.parm.capture.timeperframe.denominator,
+		  streamparm.parm.capture.extendedmode);
+	if (!(streamparm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME)) {
+		print(log_error, "'%s' does not support V4L2_CAP_TIMEPERFRAME", name().c_str(), _file.c_str());
+		return false;
+	}
+
 	// check supported RGB32 format:
 	int r;
 	bool has_yuyv = false;
@@ -872,6 +890,31 @@ bool MeterOCR::checkCapV4L2Dev()
 
 bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 {
+	// set framerate:
+	struct v4l2_streamparm streamparm;
+	streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_G_PARM, &streamparm)) {
+		print(log_error, "error %d, %s at VIDIOC_G_PARM", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+	streamparm.parm.capture.capturemode = 0; // we don't need MODE_HIGHQUALITY
+	streamparm.parm.capture.extendedmode = 0;
+	streamparm.parm.capture.timeperframe.numerator = 1;
+	streamparm.parm.capture.timeperframe.denominator = 2; // todo let's try with just 2 fps
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_PARM, &streamparm)) {
+		print(log_error, "error %d, %s at VIDIOC_S_PARM", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+	// read again to check:
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_G_PARM, &streamparm)) {
+		print(log_error, "error %d, %s at VIDIOC_G_PARM", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+	print(log_info, "set to timeperframe=%d/%d", name().c_str(),
+		  streamparm.parm.capture.timeperframe.numerator,
+		  streamparm.parm.capture.timeperframe.denominator);
+
+
 	// todo reset VIDIOC_CROPCAP???
 	struct v4l2_format fmt;
 
