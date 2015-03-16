@@ -1064,11 +1064,12 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
 {
   int line, column;
   unsigned char *py, *pu, *pv;
-  unsigned char *tmp = dst + (4*(stride_d_w * s_y) + s_x);
+  unsigned char *tmp = dst + (4*((stride_d_w * s_y) + s_x));
 
   unsigned char *ssrc = src + (2*((stride_s_w * s_y) + s_x));
-  int skip_per_line = stride_s_w - width;
-  assert(skip_per_line %1 == 0); // must be even!
+  int skip_per_line_s = stride_s_w - width;
+  int skip_per_line_d = stride_d_w - width;
+  assert(skip_per_line_s %1 == 0); // must be even!
   assert(s_x % 1 == 0);
   assert(width % 1 == 0);
 
@@ -1095,10 +1096,10 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
 	  }
 	}
 	// skip rest of stride_s_w:
-	py += 2*skip_per_line;
-	pu += 2*skip_per_line;
-	pv += 2*skip_per_line;
-	tmp += 4*skip_per_line;
+	py += 2*skip_per_line_s;
+	pu += 2*skip_per_line_s;
+	pv += 2*skip_per_line_s;
+	tmp += 4*skip_per_line_d;
   }
 }
 
