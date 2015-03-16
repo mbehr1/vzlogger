@@ -802,7 +802,7 @@ int MeterOCR::open() {
 			return ERR;
 		}
 
-		if (!initV4L2Dev(640, 480)) {
+		if (!initV4L2Dev(320, 240)) {
 			print(log_error, "couldn't init' '%s'", name().c_str(), _file.c_str());
 			::close(_v4l2_fd);
 			_v4l2_fd = -1;
