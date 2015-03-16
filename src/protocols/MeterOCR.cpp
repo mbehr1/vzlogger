@@ -899,8 +899,8 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	}
 	streamparm.parm.capture.capturemode = 0; // we don't need MODE_HIGHQUALITY
 	streamparm.parm.capture.extendedmode = 0;
-	streamparm.parm.capture.timeperframe.numerator = 2;
-	streamparm.parm.capture.timeperframe.denominator = 5; // todo let's try with just 2.5 fps
+	streamparm.parm.capture.timeperframe.numerator = 1;
+	streamparm.parm.capture.timeperframe.denominator = 5; // todo add parameter!
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_PARM, &streamparm)) {
 		print(log_error, "error %d, %s at VIDIOC_S_PARM", name().c_str(), errno, strerror(errno));
 		return false;
@@ -915,7 +915,34 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		  streamparm.parm.capture.timeperframe.denominator);
 
 
-	// todo reset VIDIOC_CROPCAP???
+	// reset VIDIOC_CROPCAP
+	struct v4l2_cropcap cropcap;
+	struct v4l2_crop crop;
+
+	memset (&cropcap, 0, sizeof (cropcap));
+	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+	if (-1 == xioctl (_v4l2_fd, VIDIOC_CROPCAP, &cropcap)) {
+		print(log_error, "error %d, %s at VIDIOC_CROPCAP", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+
+	memset (&crop, 0, sizeof (crop));
+	crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	crop.c = cropcap.defrect;
+
+	bool supportscrop=true;
+	if (-1 == xioctl (_v4l2_fd, VIDIOC_S_CROP, &crop)) {
+		if (errno==EINVAL) {
+			supportscrop = false;
+			print(log_info, "cropping not supported!", name().c_str());
+		} else {
+			print(log_error, "error %d, %s at VIDIOC_S_CROP", name().c_str(), errno, strerror(errno));
+			return false;
+		}
+	}
+
+
 	struct v4l2_format fmt;
 
 	memset(&fmt, 0, sizeof(fmt));
@@ -928,6 +955,16 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
 		return false;
 	}
+
+	// now set cropping to wanted rectangle: todo
+	print(log_info, "cropcap.defrect=(%d,%d)x(%d,%d)", name().c_str(),
+		  cropcap.defrect.left, cropcap.defrect.top,
+		  cropcap.defrect.width, cropcap.defrect.height);
+
+	if (supportscrop) {
+		// todo
+	}
+
 
 	struct v4l2_requestbuffers req;
 
