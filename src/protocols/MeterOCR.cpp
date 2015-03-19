@@ -1370,7 +1370,7 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		
 			if (!_impulses)
 				print(log_debug, "returning: id <%s> value <%f>", name().c_str(), it->first.c_str(), r.value);
-			if (!isnan(r.value)){
+			if (!std::isnan(r.value)){
 			
 				// if impulses wanted lets determine the delta:
 				if (_impulses){
