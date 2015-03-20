@@ -935,6 +935,21 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		return false;
 	}
 
+	memset(&fmt, 0, sizeof(fmt));
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (-1 == xioctl(_v4l2_fd, VIDIOC_G_FMT, &fmt)) {
+		print(log_error, "couldn't set VIDIOC_G_FMT %d, %s", name().c_str(), errno, strerror(errno));
+		return false;
+	}
+	print(log_info, "set to w=%d, h=%d, pixelformat=%d, bytesperline=%d, field=%d", name().c_str(),
+		  fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.pixelformat,
+		  fmt.fmt.pix.bytesperline, fmt.fmt.pix.field);
+	if (w != fmt.fmt.pix.width || h != fmt.fmt.pix.height || fmt.fmt.pix.bytesperline != (w*2)) {
+		print(log_error, "wrong fmt pix!", name().c_str());
+		return false;
+	}
+
+
 	// reset VIDIOC_CROPCAP
 	struct v4l2_cropcap cropcap;
 	struct v4l2_crop crop;
