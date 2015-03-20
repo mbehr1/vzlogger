@@ -929,7 +929,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	fmt.fmt.pix.width = w;
 	fmt.fmt.pix.height = h;
 	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-	fmt.fmt.pix.field = V4L2_FIELD_INTERLACED; // TODO interlaced???
+	fmt.fmt.pix.field = V4L2_FIELD_NONE;
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_FMT, &fmt)) {
 		print(log_error, "couldn't set VIDIOC_S_FMT %d, %s", name().c_str(), errno, strerror(errno));
 		return false;
