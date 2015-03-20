@@ -941,10 +941,11 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		print(log_error, "couldn't set VIDIOC_G_FMT %d, %s", name().c_str(), errno, strerror(errno));
 		return false;
 	}
-	print(log_info, "set to w=%d, h=%d, pixelformat=%d, bytesperline=%d, field=%d", name().c_str(),
+	print(log_info, "set to w=%d, h=%d, pixelformat=%x, bytesperline=%d, field=%d", name().c_str(),
 		  fmt.fmt.pix.width, fmt.fmt.pix.height, fmt.fmt.pix.pixelformat,
 		  fmt.fmt.pix.bytesperline, fmt.fmt.pix.field);
-	if (w != fmt.fmt.pix.width || h != fmt.fmt.pix.height || fmt.fmt.pix.bytesperline != (w*2)) {
+	if (w != fmt.fmt.pix.width || h != fmt.fmt.pix.height || fmt.fmt.pix.bytesperline != (w*2)
+			|| V4L2_FIELD_NONE != fmt.fmt.pix.field) {
 		print(log_error, "wrong fmt pix!", name().c_str());
 		return false;
 	}
