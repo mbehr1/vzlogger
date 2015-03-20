@@ -949,7 +949,10 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 		print(log_error, "wrong fmt pix!", name().c_str());
 		return false;
 	}
-
+	if (V4L2_PIX_FMT_YUYV != fmt.fmt.pix.pixelformat) {
+		print(log_error, "wrong pixelformat!", name().c_str());
+		return false;
+	}
 
 	// reset VIDIOC_CROPCAP
 	struct v4l2_cropcap cropcap;
