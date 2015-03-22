@@ -628,8 +628,8 @@ MeterOCR::RecognizerNeedle::~RecognizerNeedle()
 {
 }
 
-MeterOCR::MeterOCR(std::list<Option> options)
-		: Protocol("ocr"), _use_v4l2(false), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
+MeterOCR::MeterOCR(const std::list<Option> &options)
+		: Protocol("ocr"), _last_image(0), _use_v4l2(false), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
 		_v4l2_cap_size_x(320), _v4l2_cap_size_y(240),
 		_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN),
 		_notify_fd(-1), _forced_file_changed(true), _impulses(0), _rotate(0.0),
@@ -1123,7 +1123,7 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
 }
 
 
-bool MeterOCR::readV4l2Frame(Pix *&image)
+bool MeterOCR::readV4l2Frame(Pix *&image, bool first_time)
 {
 	bool toRet = false;
 	if (!image) return false;
@@ -1166,17 +1166,19 @@ bool MeterOCR::readV4l2Frame(Pix *&image)
 
 	if ( buf.bytesused >= ((unsigned int)w*(unsigned int)h*(unsigned int)(d/16))) { // we expect half of the data we need
 		// convert from yuyv(yuv2) to RGBA:
-	/*
-		if (0 == libyuv::YUY2ToARGB((uint8_t*)(_v4l2_buffers[buf.index].start), w*2,
-							   (uint8_t *)pixGetData(image), w*4,
-							   w, h)) {
-			(void)libyuv::ARGBToBGRA((uint8_t *)pixGetData(image), w*4,
-							   (uint8_t *)pixGetData(image), w*4,
-							   w, h);
-			toRet = true;
-		} */
-		YUV422toRGBA888(_v4l2_cap_size_x,_v4l2_cap_size_y, w,h, _min_x, _min_y, _max_x - _min_x, _max_y - _min_y, (uint8_t*)(_v4l2_buffers[buf.index].start),
-				(uint8_t *)pixGetData(image) );
+		if (first_time) {
+			// if for the first time we convert the full picture and draw a rectangle around the area to be searched:
+			YUV422toRGBA888(_v4l2_cap_size_x, _v4l2_cap_size_y, w, h, 0, 0, w, h,
+							(uint8_t*)(_v4l2_buffers[buf.index].start),	(uint8_t *)pixGetData(image));
+			// draw rectangle in green:
+			BOX *box = boxCreate(_min_x - 1, _min_y - 1, _max_x - _min_x + 1, _max_y - _min_y + 1);
+			pixRenderBoxArb(image, box, 1, 0, 0xff, 0);
+			boxDestroy(&box);
+		} else {
+			// we only update the interesting rectangle
+			YUV422toRGBA888(_v4l2_cap_size_x,_v4l2_cap_size_y, w,h, _min_x, _min_y, _max_x - _min_x, _max_y - _min_y, (uint8_t*)(_v4l2_buffers[buf.index].start),
+					(uint8_t *)pixGetData(image) );
+		}
 		toRet = true;
 	}
 	// return buffer:
@@ -1234,6 +1236,10 @@ int MeterOCR::close() {
 
 		(void)::close(_v4l2_fd);
 		_v4l2_fd = -1;
+	}
+
+	if (_last_image) {
+		pixDestroy(&_last_image);
 	}
 
 	return 0;
@@ -1299,11 +1305,16 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		if (_min_x > _max_x) _min_x = _max_x;
 		if (_min_y > _max_y) _min_y = _max_y; // todo do this in contructor
 
-		image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32); // todo create this just once and don't destroy after read!
+		bool first_time = false;
+		if (!_last_image) {
+			first_time = true;
+			_last_image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32); // todo create this just once and don't destroy after read!
 		// todo optimize further to use just _max_x - _min_x width,... (needs different offset calc later...)
+		}
+		image = pixClone(_last_image);
 
 		// readV4L2Frame simply changes the data ptr!
-		bool ok = readV4l2Frame(image);
+		bool ok = readV4l2Frame(image, first_time);
 		if (!ok) {
 			pixDestroy(&image);
 			return 0;

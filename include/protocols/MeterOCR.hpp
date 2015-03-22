@@ -57,7 +57,7 @@ extern int debounce(int iprev, double fnew);
 class MeterOCR : public vz::protocol::Protocol {
 
 public:
-	MeterOCR(std::list<Option> options);
+	MeterOCR(const std::list<Option> &options);
 	virtual ~MeterOCR();
 
 	int open();
@@ -164,7 +164,7 @@ protected:
 
 	bool checkCapV4L2Dev();
 	bool initV4L2Dev(unsigned int w, unsigned int h);
-	bool readV4l2Frame(Pix *&image);
+	bool readV4l2Frame(Pix *&image, bool first_time);
 
 	struct buffer {
 		void *start;
@@ -172,6 +172,7 @@ protected:
 	};
 
 	std::string _file;
+	Pix *_last_image;
 	bool _use_v4l2;
 	int _v4l2_fd;
 	struct buffer *_v4l2_buffers;
