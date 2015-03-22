@@ -1075,7 +1075,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
  *   Copyright (C) 2009 by Tobias Mueller
  *   Tobias_Mueller@twam.info
  * licensed under gpl v2.
- * modified to handle RGBA
+ * modified to handle RGBA and window coordinates and changed to float instead of double and changed to little endianess
  * */
 
 static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int stride_d_h,
@@ -1092,8 +1092,8 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
   assert(s_x % 1 == 0);
   assert(width % 1 == 0);
 
-  /* In this format each four bytes is two pixels. Each four bytes is two Y's, a Cb and a Cr.
-	 Each Y goes to one of the pixels, and the Cb and Cr belong to both pixels. */
+  // In this format each four bytes is two pixels. Each four bytes is two Y's, a Cb and a Cr.
+  // Each Y goes to one of the pixels, and the Cb and Cr belong to both pixels.
   py = ssrc;
   pu = ssrc + 1;
   pv = ssrc + 3;
@@ -1213,7 +1213,7 @@ bool MeterOCR::isNotifiedFileChanged()
         } while(len>0 && nr_events>=5); // if 5 events received there might be some more pending.
         return changed;
     }
-    return false; // or true if notify failed?
+	return true;
 }
 
 int MeterOCR::close() {
@@ -1298,22 +1298,21 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 			print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
 			return 0;
 		}
-		if (_max_x > _v4l2_cap_size_x) _max_x = _v4l2_cap_size_x;
-		if (_max_y > _v4l2_cap_size_y) _max_y = _v4l2_cap_size_y;
-		if (_min_x < 0 ) _min_x = 0;
-		if (_min_y < 0 ) _min_y = 0;
-		if (_min_x > _max_x) _min_x = _max_x;
-		if (_min_y > _max_y) _min_y = _max_y; // todo do this in contructor
 
 		bool first_time = false;
 		if (!_last_image) {
+			if (_max_x > _v4l2_cap_size_x) _max_x = _v4l2_cap_size_x;
+			if (_max_y > _v4l2_cap_size_y) _max_y = _v4l2_cap_size_y;
+			if (_min_x < 0 ) _min_x = 0;
+			if (_min_y < 0 ) _min_y = 0;
+			if (_min_x > _max_x) _min_x = _max_x;
+			if (_min_y > _max_y) _min_y = _max_y;
+
 			first_time = true;
-			_last_image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32); // todo create this just once and don't destroy after read!
-		// todo optimize further to use just _max_x - _min_x width,... (needs different offset calc later...)
+			_last_image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32);
 		}
 		image = pixClone(_last_image);
 
-		// readV4L2Frame simply changes the data ptr!
 		bool ok = readV4l2Frame(image, first_time);
 		if (!ok) {
 			pixDestroy(&image);
