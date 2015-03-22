@@ -1141,7 +1141,6 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
 bool MeterOCR::readV4l2Frame(Pix *&image, bool first_time)
 {
 	bool toRet = false;
-	if (!image) return false;
 	struct v4l2_buffer buf;
 	memset(&buf, 0, sizeof(buf));
 	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1172,6 +1171,13 @@ bool MeterOCR::readV4l2Frame(Pix *&image, bool first_time)
 	// now we have the image data in buffers[buf.index].start with len buf.bytesused
 	print(log_finest, "buf.index=%d buf.bytesused=%d", name().c_str(), buf.index, buf.bytesused);
 
+	if (!image) {
+		// return buffer:
+		if (-1 == xioctl(_v4l2_fd, VIDIOC_QBUF, &buf)) {
+			print(log_error, "VIDIOC_QBUF failed", name().c_str());
+		}
+		return false;
+	}
 	// copy into a Pix image (!would be better if we don't need to copy!)
 	// check that the data is big enough:
 	int32_t w,h,d;
@@ -1301,6 +1307,20 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		tv.tv_sec = 2;
 		tv.tv_usec = 0;
 		int r;
+
+		bool first_time = false;
+		if (!_last_image) {
+			if (_max_x > _v4l2_cap_size_x) _max_x = _v4l2_cap_size_x;
+			if (_max_y > _v4l2_cap_size_y) _max_y = _v4l2_cap_size_y;
+			if (_min_x < 0 ) _min_x = 0;
+			if (_min_y < 0 ) _min_y = 0;
+			if (_min_x > _max_x) _min_x = _max_x;
+			if (_min_y > _max_y) _min_y = _max_y;
+
+			first_time = true;
+			_last_image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32);
+		}
+
 		int skip = _v4l2_skip_frames +1;
 		do {
 			do {
@@ -1315,27 +1335,19 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 				print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
 				return 0;
 			}
-		} while (--skip); // or do we need to get the frames first from the device before next select indicate new picture?
+			if (skip==1) {
+				image = pixClone(_last_image);
+				bool ok = readV4l2Frame(image, first_time);
+				if (!ok) {
+					pixDestroy(&image);
+					return 0;
+				}
+			} else {
+				Pix *im = 0;
+				(void)readV4l2Frame(im, false);
+			}
+		} while (--skip);
 
-		bool first_time = false;
-		if (!_last_image) {
-			if (_max_x > _v4l2_cap_size_x) _max_x = _v4l2_cap_size_x;
-			if (_max_y > _v4l2_cap_size_y) _max_y = _v4l2_cap_size_y;
-			if (_min_x < 0 ) _min_x = 0;
-			if (_min_y < 0 ) _min_y = 0;
-			if (_min_x > _max_x) _min_x = _max_x;
-			if (_min_y > _max_y) _min_y = _max_y;
-
-			first_time = true;
-			_last_image = pixCreateNoInit( _v4l2_cap_size_x, _v4l2_cap_size_y, 32);
-		}
-		image = pixClone(_last_image);
-
-		bool ok = readV4l2Frame(image, first_time);
-		if (!ok) {
-			pixDestroy(&image);
-			return 0;
-		}
 		// read frame!
 		print(log_finest,"frame ready!", name().c_str());
 
