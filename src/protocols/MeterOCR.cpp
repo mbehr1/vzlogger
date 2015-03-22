@@ -1171,7 +1171,7 @@ bool MeterOCR::readV4l2Frame(Pix *&image, bool first_time)
 			YUV422toRGBA888(_v4l2_cap_size_x, _v4l2_cap_size_y, w, h, 0, 0, w, h,
 							(uint8_t*)(_v4l2_buffers[buf.index].start),	(uint8_t *)pixGetData(image));
 			// draw rectangle in green:
-			BOX *box = boxCreate(_min_x - 1, _min_y - 1, _max_x - _min_x + 1, _max_y - _min_y + 1);
+			BOX *box = boxCreate(_min_x - 1, _min_y - 1, _max_x - _min_x + 2, _max_y - _min_y + 2);
 			pixRenderBoxArb(image, box, 1, 0, 0xff, 0);
 			boxDestroy(&box);
 		} else {
