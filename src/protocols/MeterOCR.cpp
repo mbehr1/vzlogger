@@ -1102,7 +1102,7 @@ static void YUV422toRGBA888(int stride_s_w, int stride_s_h, int stride_d_w, int 
 
   for (line = 0; line < height; ++line) {
 	for (column = 0; column < width; ++column) {
-	  *tmp++ = 0; // alpha // for little endianess! TODO doesn't work on big endian!
+	  *tmp++ = 0; // alpha // for little endianess! TODO doesn't work on big endian! // todo we are only interested in red anyway. Could ignore B and G.
 	  *tmp++ = CLIP((float)*py + 1.772*((float)*pu-128.0)); // B
 	  *tmp++ = CLIP((float)*py - 0.344*((float)*pu-128.0) - 0.714*((float)*pv-128.0)); // G
 	  *tmp++ = CLIP((float)*py + 1.402*((float)*pv-128.0)); // R
