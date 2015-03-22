@@ -174,6 +174,8 @@ protected:
 	std::string _file;
 	Pix *_last_image;
 	bool _use_v4l2;
+	int _v4l2_fps;
+	int _v4l2_skip_frames;
 	int _v4l2_fd;
 	struct buffer *_v4l2_buffers;
 	unsigned int _v4l2_nbuffers;

@@ -629,7 +629,7 @@ MeterOCR::RecognizerNeedle::~RecognizerNeedle()
 }
 
 MeterOCR::MeterOCR(const std::list<Option> &options)
-		: Protocol("ocr"), _last_image(0), _use_v4l2(false), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
+		: Protocol("ocr"), _last_image(0), _use_v4l2(false), _v4l2_fps(5), _v4l2_skip_frames(0), _v4l2_fd(-1), _v4l2_buffers(0), _v4l2_nbuffers(0),
 		_v4l2_cap_size_x(320), _v4l2_cap_size_y(240),
 		_min_x(INT_MAX), _min_y(INT_MAX), _max_x(INT_MIN), _max_y(INT_MIN),
 		_notify_fd(-1), _forced_file_changed(true), _impulses(0), _rotate(0.0),
@@ -908,7 +908,7 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	streamparm.parm.capture.capturemode = 0; // we don't need MODE_HIGHQUALITY
 	streamparm.parm.capture.extendedmode = 0;
 	streamparm.parm.capture.timeperframe.numerator = 1;
-	streamparm.parm.capture.timeperframe.denominator = 5; // todo add parameter!
+	streamparm.parm.capture.timeperframe.denominator = _v4l2_fps;
 	if (-1 == xioctl(_v4l2_fd, VIDIOC_S_PARM, &streamparm)) {
 		print(log_error, "error %d, %s at VIDIOC_S_PARM", name().c_str(), errno, strerror(errno));
 		return false;
@@ -921,6 +921,21 @@ bool MeterOCR::initV4L2Dev(unsigned int w, unsigned int h)
 	print(log_info, "set to timeperframe=%d/%d", name().c_str(),
 		  streamparm.parm.capture.timeperframe.numerator,
 		  streamparm.parm.capture.timeperframe.denominator);
+
+	int set_fps = streamparm.parm.capture.timeperframe.denominator;
+	if (streamparm.parm.capture.timeperframe.numerator>1)
+		set_fps /= streamparm.parm.capture.timeperframe.numerator;
+
+	_v4l2_skip_frames = 0;
+	if ( set_fps > _v4l2_fps) {
+		// determine whether we can simply skip a few frames:
+		int skip = set_fps / _v4l2_fps;
+		if (skip>0) {
+			_v4l2_skip_frames = skip-1;
+			print(log_info, "skipping %d frames", name().c_str(), _v4l2_skip_frames);
+
+		}
+	}
 
 	struct v4l2_format fmt;
 
@@ -1286,18 +1301,21 @@ ssize_t MeterOCR::read(std::vector<Reading> &rds, size_t max_reads) {
 		tv.tv_sec = 2;
 		tv.tv_usec = 0;
 		int r;
+		int skip = _v4l2_skip_frames +1;
 		do {
-			r = select(_v4l2_fd +1, &fds, NULL, NULL, &tv);
-		} while( -1 == r && EINTR == errno);
-		if (0 == r) {
-			// timeout
-			print(log_warning, "timeout!", name().c_str());
-			return 0;
-		}
-		if (-1 == r) {
-			print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
-			return 0;
-		}
+			do {
+				r = select(_v4l2_fd +1, &fds, NULL, NULL, &tv);
+			} while( -1 == r && EINTR == errno);
+			if (0 == r) {
+				// timeout
+				print(log_warning, "timeout!", name().c_str());
+				return 0;
+			}
+			if (-1 == r) {
+				print(log_error, "select returned %d, %s", name().c_str(), errno, strerror(errno));
+				return 0;
+			}
+		} while (--skip); // or do we need to get the frames first from the device before next select indicate new picture?
 
 		bool first_time = false;
 		if (!_last_image) {
