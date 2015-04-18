@@ -259,8 +259,8 @@ bool MeterOCR::RecognizerNeedle::recognize(PIX *imageO, int dX, int dY, ReadsMap
 	else { // use default: only red channel amplified
 		kel = kernelCreate(3, 3);
 		kernelSetElement(kel, 0, 0, 2.0);
-		kernelSetElement(kel, 0, 1, -2.0);
-		kernelSetElement(kel, 0, 2, -2.0);
+		kernelSetElement(kel, 0, 1, -1.0);
+		kernelSetElement(kel, 0, 2, -1.0);
 	}
 
 	image2 = pixMultMatrixColor(image, kel);	
@@ -639,7 +639,7 @@ MeterOCR::MeterOCR(const std::list<Option> &options)
 
 	try {
 		_file = optlist.lookup_string(options, "v4l2_dev");
-		_use_v4l2 = true;
+		_use_v4l2 = _file.length() > 0;
 	} catch (vz::VZException &e) {
 		// ignore
 	}
